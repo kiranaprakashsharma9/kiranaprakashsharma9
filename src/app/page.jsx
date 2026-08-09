@@ -20,8 +20,8 @@ export default function Page() {
       <About />
       <Services />
       <Reviews />
-      <Shuba showBackButton={false} />
-      <Ashuba showBackButton={false} />
+      <Shuba showBackButton={false} previewCount={4} />
+      <Ashuba showBackButton={false} previewCount={4} />
       <Location />
       <Contact />
     </>

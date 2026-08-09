@@ -66,7 +66,37 @@ export default function AdminLoginPage() {
     });
 
     if (error) {
-      setError(error.message);
+      // Determine whether the email exists by calling a secure server endpoint
+      try {
+        const resp = await fetch('/api/admin/check-user', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email: email.trim() }),
+        });
+        const json = await resp.json();
+
+        if (resp.ok && typeof json.exists !== 'undefined') {
+          if (json.exists) {
+            // Email exists but sign-in failed
+            setError('Incorrect password.');
+          } else {
+            // Email not found
+            setError('Incorrect email ID. No account found with that email.');
+          }
+        } else if (json && json.error) {
+          // Server route exists but reported a configuration problem
+          console.error('check-user error:', json.error);
+          setError('Unable to verify credentials (server misconfigured). Possible incorrect email or password.');
+        } else {
+          // Unknown response
+          console.error('check-user unexpected response:', resp.status, json);
+          setError('Unable to verify credentials. Possible incorrect email or password.');
+        }
+      } catch (err) {
+        console.error('Error checking user existence', err);
+        setError('Unable to verify credentials. Possible incorrect email or password.');
+      }
+
       setLoading(false);
       return;
     }

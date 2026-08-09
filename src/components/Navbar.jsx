@@ -97,8 +97,8 @@ const Navbar = () => {
     { name: t.common.aboutUs, href: "/#about" },
     { name: t.common.poojaList, href: "/#services" },
     { name: t.common.review, href: "/#review" },
-    { name: t.common.imagesShuba, href: "/#shuba" },
-    { name: t.common.imagesAshuba, href: "/#ashuba" },
+    { name: t.common.imagesShuba, href: "/shuba", isPage: true },
+    { name: t.common.imagesAshuba, href: "/ashuba", isPage: true },
     { name: t.common.location, href: "/#location" },
     { name: t.common.contact, href: "/#contact" },
   ];

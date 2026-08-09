@@ -6,6 +6,39 @@ import { supabase } from "@/lib/supabaseClient";
 import { useAdminSession } from "@/hooks/useAdminSession";
 import { FiEdit3, FiTrash2 } from "react-icons/fi";
 
+// Compress images on the client before uploading to storage to reduce size
+async function compressImageFile(file, maxDimension = 2000, quality = 0.9) {
+  if (!file) return file;
+  // Prefer createImageBitmap when available
+  try {
+    const bitmap = await createImageBitmap(file);
+    let { width, height } = bitmap;
+    const max = Math.max(width, height);
+    let scale = 1;
+    if (max > maxDimension) scale = maxDimension / max;
+    const w = Math.round(width * scale);
+    const h = Math.round(height * scale);
+
+    const canvas = document.createElement('canvas');
+    canvas.width = w;
+    canvas.height = h;
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(bitmap, 0, 0, w, h);
+
+    // Use webp for better compression; fallback to original type if not supported
+    const mime = 'image/webp';
+    const blob = await new Promise((resolve) => canvas.toBlob(resolve, mime, quality));
+    if (!blob) return file;
+    // Return a File with .webp extension to keep names unique/small
+    const newName = file.name.replace(/\.[^/.]+$/, '.webp');
+    return new File([blob], newName, { type: blob.type });
+  } catch (err) {
+    // Fallback to returning original file
+    console.warn('Image compression failed, uploading original file', err);
+    return file;
+  }
+}
+
 const CATEGORIES = [
   { key: "shuba", label: "Shuba (Auspicious Poojas)" },
   { key: "ashuba", label: "Ashuba (Post-death Rituals)" },
@@ -50,13 +83,15 @@ export default function AdminDashboardPage() {
     setUploading(true);
     setMessage(null);
 
-    const safeName = file.name.replace(/\s+/g, "-").toLowerCase();
+    // Compress the image before upload to reduce size (keeps good quality)
+    const compressed = await compressImageFile(file, 2000, 0.9);
+    const safeName = compressed.name.replace(/\s+/g, "-").toLowerCase();
     const path = `${category}/${Date.now()}-${safeName}`;
 
     // 1. Upload the actual file to Supabase Storage
     const { error: uploadError } = await supabase.storage
       .from("gallery")
-      .upload(path, file);
+      .upload(path, compressed);
 
     if (uploadError) {
       setMessage({ type: "error", text: uploadError.message });
@@ -116,12 +151,14 @@ export default function AdminDashboardPage() {
       let storagePath = editingImage.storage_path;
 
       if (editFile) {
-        const safeName = editFile.name.replace(/\s+/g, "-").toLowerCase();
+        // compress replacement file before upload
+        const compressedEdit = await compressImageFile(editFile, 2000, 0.9);
+        const safeName = compressedEdit.name.replace(/\s+/g, "-").toLowerCase();
         const newPath = `${category}/${Date.now()}-${safeName}`;
 
         const { error: uploadError } = await supabase.storage
           .from("gallery")
-          .upload(newPath, editFile);
+          .upload(newPath, compressedEdit);
 
         if (uploadError) {
           throw new Error(uploadError.message);
