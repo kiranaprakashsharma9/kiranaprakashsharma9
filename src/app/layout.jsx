@@ -6,7 +6,7 @@ import { LanguageProvider } from "@/context/LanguageContext";
 
 export const metadata = {
   metadataBase: new URL(
-    "https://kiranpkoundinya.github.io/kiranaprakashsharma/"
+    "https://kiranaprakashsharma9.github.io/kiranaprakashsharma9/"
   ),
 
   title: {
@@ -62,11 +62,11 @@ export const metadata = {
   openGraph: {
     type: "website",
     locale: "en_US",
-    url: "https://kiranpkoundinya.github.io/kiranaprakashsharma/",
-    siteName: "Kiranaprakashsharma",
+    url: "https://kiranaprakashsharma9.github.io/kiranaprakashsharma9/",
+    siteName: "Kiranaprakashsharma9",
 
     title:
-      "Kiranaprakashsharma | Authentic Vedic Purohit in Srirangapatna",
+      "Kiranaprakashsharma9 | Authentic Vedic Purohit in Srirangapatna",
 
     description:
       "Book expert Vedic Purohit Kiranaprakashsharma in Srirangapatna for Shuba & Ashuba ceremonies: Vivaha, Gruhapravesha, Narayana Bali, and Asthi Visarjana.",
@@ -76,7 +76,7 @@ export const metadata = {
         url: "/preview_img.png",
         width: 1200,
         height: 630,
-        alt: "Kiranaprakashsharma | Authentic Vedic Purohit",
+        alt: "Kiranaprakashsharma9 | Authentic Vedic Purohit",
       },
     ],
   },
@@ -85,7 +85,7 @@ export const metadata = {
     card: "summary_large_image",
 
     title:
-      "Kiranaprakashsharma | Authentic Vedic Purohit in Srirangapatna",
+      "Kiranaprakashsharma9 | Authentic Vedic Purohit in Srirangapatna",
 
     description:
       "Book expert Vedic Purohit Kiranaprakashsharma in Srirangapatna for Shuba & Ashuba ceremonies: Vivaha, Gruhapravesha, Narayana Bali, and Asthi Visarjana.",
@@ -97,7 +97,8 @@ export const metadata = {
 export default function RootLayout({ children }) {
   return (
     <html lang="en" suppressHydrationWarning>
-      <body suppressHydrationWarning>
+      {/* Added overflow-x-hidden and max-w-full to prevent horizontal scrolling */}
+      <body className="overflow-x-hidden max-w-full" suppressHydrationWarning>
         <LanguageProvider>
           <Navbar />
 
