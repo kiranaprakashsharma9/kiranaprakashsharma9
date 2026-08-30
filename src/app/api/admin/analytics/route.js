@@ -1,121 +1,158 @@
 import { NextResponse } from "next/server";
-import { google } from "googleapis";
 
-const toNumber = (value) => Number(value ?? 0);
+const DEFAULT_DATA = {
+  totalVisits: 0,
+  uniqueVisitors: 0,
+  pageViews: 0,
+  conversions: 0,
+  avgSession: "00:00",
+  bounceRate: 0,
+  recentActivity: [{ label: "No traffic yet", type: "page", time: "Waiting for data" }],
+  topPages: [],
+  trafficSources: [],
+};
 
-function formatDuration(totalSeconds) {
-  const safeSeconds = Math.max(0, toNumber(totalSeconds));
-  const hours = Math.floor(safeSeconds / 3600);
-  const minutes = Math.floor((safeSeconds % 3600) / 60);
-  const seconds = Math.floor(safeSeconds % 60);
+function buildAnalyticsUrl(path, params) {
+  const url = new URL(`https://api.vercel.com/v1/query/web-analytics/${path}`);
+  Object.entries(params).forEach(([key, value]) => {
+    if (value !== undefined && value !== null && value !== "") {
+      url.searchParams.set(key, String(value));
+    }
+  });
+  return url.toString();
+}
 
-  if (hours > 0) {
-    return `${hours.toString().padStart(2, "0")}:${minutes
-      .toString()
-      .padStart(2, "0")}:${seconds.toString().padStart(2, "0")}`;
+function toNumber(value) {
+  const numeric = Number(value ?? 0);
+  return Number.isFinite(numeric) ? numeric : 0;
+}
+
+async function fetchVercelAnalytics(url, token) {
+  const response = await fetch(url, {
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+    },
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`Vercel Analytics request failed (${response.status}): ${errorText}`);
   }
 
-  return `${minutes.toString().padStart(2, "0")}:${seconds
-    .toString()
-    .padStart(2, "0")}`;
+  return response.json();
 }
 
-function formatPageLabel(pagePath) {
-  if (!pagePath || pagePath === "/") return "Home";
-  return pagePath.replace(/^\/+|\/+$/g, "") || "Home";
+function normalizeTopPages(rows = []) {
+  return rows
+    .slice(0, 4)
+    .map((row) => {
+      const path = row?.requestPath || row?.route || "/";
+      const views = toNumber(row?.pageviews ?? row?.count ?? 0);
+      return {
+        label: path === "/" ? "Home" : path.replace(/^\/+|\/+$/g, "") || "Home",
+        value: views,
+      };
+    })
+    .filter((item) => item.label);
 }
 
-async function getGoogleAnalyticsSummary() {
-  const propertyId = process.env.GA_PROPERTY_ID;
-  const serviceAccountEmail = process.env.GA_SERVICE_ACCOUNT_EMAIL;
-  const privateKey = process.env.GA_PRIVATE_KEY?.replace(/\\n/g, "\n");
+function normalizeTrafficSources(rows = []) {
+  return rows
+    .slice(0, 4)
+    .map((row) => {
+      const label = row?.referrerHostname || row?.country || row?.deviceType || "Direct";
+      const value = toNumber(row?.pageviews ?? row?.count ?? 0);
+      return { label, value };
+    })
+    .filter((item) => item.label);
+}
 
-  if (!propertyId || !serviceAccountEmail || !privateKey) {
+async function getAnalyticsData() {
+  const token = process.env.VERCEL_TOKEN;
+  const projectId = process.env.VERCEL_PROJECT_ID || process.env.PROJECT_ID || process.env.NEXT_PUBLIC_VERCEL_PROJECT_ID;
+  const teamId = process.env.VERCEL_TEAM_ID || process.env.VERCEL_TEAM_SLUG;
+
+  if (!token || !projectId) {
     return {
       configured: false,
-      message: "Google Analytics service account is not configured yet.",
-      data: {
-        totalVisits: 0,
-        uniqueVisitors: 0,
-        pageViews: 0,
-        conversions: 0,
-        avgSession: "00:00",
-        bounceRate: 0,
-        recentActivity: [],
-      },
+      message: "Set VERCEL_TOKEN and VERCEL_PROJECT_ID in your environment to enable live tracking.",
+      data: DEFAULT_DATA,
     };
   }
 
-  const auth = new google.auth.JWT({
-    email: serviceAccountEmail,
-    key: privateKey,
-    scopes: ["https://www.googleapis.com/auth/analytics.readonly"],
-  });
+  const today = new Date();
+  const since = new Date(today);
+  since.setDate(today.getDate() - 30);
 
-  const analytics = google.analyticsdata({ version: "v1beta", auth });
+  const visitsCountParams = {
+    projectId,
+    teamId,
+    since: since.toISOString().slice(0, 10),
+    until: today.toISOString().slice(0, 10),
+  };
 
-  const summaryResponse = await analytics.properties.runReport({
-    property: `properties/${propertyId}`,
-    requestBody: {
-      dateRanges: [{ startDate: "30daysAgo", endDate: "today" }],
-      metrics: [
-        { name: "screenPageViews" },
-        { name: "activeUsers" },
-        { name: "sessions" },
-        { name: "bounceRate" },
-        { name: "averageSessionDuration" },
-        { name: "eventCount" },
-      ],
-    },
-  });
+  const topPagesParams = {
+    projectId,
+    teamId,
+    since: since.toISOString().slice(0, 10),
+    until: today.toISOString().slice(0, 10),
+    by: "requestPath",
+    limit: 5,
+  };
 
-  const pageResponse = await analytics.properties.runReport({
-    property: `properties/${propertyId}`,
-    requestBody: {
-      dateRanges: [{ startDate: "30daysAgo", endDate: "today" }],
-      dimensions: [{ name: "pagePath" }],
-      metrics: [{ name: "screenPageViews" }],
-      orderBys: [{ desc: true, metric: { metricName: "screenPageViews" } }],
-      limit: 5,
-    },
-  });
+  const sourcesParams = {
+    projectId,
+    teamId,
+    since: since.toISOString().slice(0, 10),
+    until: today.toISOString().slice(0, 10),
+    by: "referrerHostname",
+    limit: 5,
+  };
 
-  const summaryRow = summaryResponse.data.rows?.[0];
-  const summaryValues = summaryRow?.metricValues || [];
-  const metricMap = {};
+  const [visitCountResult, pageAggregateResult, sourcesResult, eventCountResult] = await Promise.all([
+    fetchVercelAnalytics(buildAnalyticsUrl("visits/count", visitsCountParams), token),
+    fetchVercelAnalytics(buildAnalyticsUrl("visits/aggregate", topPagesParams), token),
+    fetchVercelAnalytics(buildAnalyticsUrl("visits/aggregate", sourcesParams), token),
+    fetchVercelAnalytics(buildAnalyticsUrl("events/count", { ...visitsCountParams, filter: "eventName ne ''" }), token).catch(() => ({ data: { count: 0 } })),
+  ]);
 
-  (summaryResponse.data.metricHeaders || []).forEach((header, index) => {
-    metricMap[header.name] = summaryValues[index]?.value || "0";
-  });
+  const totalPageviews = toNumber(visitCountResult?.data?.pageviews);
+  const uniqueVisitors = toNumber(visitCountResult?.data?.visitors);
+  const conversions = toNumber(eventCountResult?.data?.count ?? eventCountResult?.data?.visitors ?? 0);
+  const topPages = normalizeTopPages(pageAggregateResult?.data ?? []);
+  const trafficSources = normalizeTrafficSources(sourcesResult?.data ?? []);
 
-  const topPages = (pageResponse.data.rows || []).slice(0, 5).map((row) => {
-    const dimensionValue = row.dimensionValues?.[0]?.value || "/";
-    const metricValue = row.metricValues?.[0]?.value || "0";
-
-    return {
-      label: formatPageLabel(dimensionValue),
-      type: "page",
-      time: `${toNumber(metricValue).toLocaleString()} views`,
-    };
-  });
+  const activity = topPages.length
+    ? topPages.map((page) => ({
+        label: `${page.label} page viewed`,
+        type: "page",
+        time: `${page.value.toLocaleString()} views`,
+      }))
+    : [{ label: "No traffic yet", type: "page", time: "Waiting for data" }];
 
   return {
     configured: true,
     data: {
-      totalVisits: toNumber(metricMap.sessions),
-      uniqueVisitors: toNumber(metricMap.activeUsers),
-      pageViews: toNumber(metricMap.screenPageViews),
-      conversions: toNumber(metricMap.eventCount),
-      avgSession: formatDuration(metricMap.averageSessionDuration),
-      bounceRate: Math.round(toNumber(metricMap.bounceRate)),
-      recentActivity: topPages.length ? topPages : [{ label: "Home", type: "page", time: "No data yet" }],
+      totalVisits: totalPageviews,
+      uniqueVisitors,
+      pageViews: totalPageviews,
+      conversions,
+      avgSession: "00:00",
+      bounceRate: 0,
+      recentActivity: activity,
+      topPages: topPages.map((page) => ({ label: page.label, value: Math.min(100, Math.max(10, Math.round((page.value / Math.max(totalPageviews, 1)) * 100))) })),
+      trafficSources: trafficSources.map((source) => ({
+        label: source.label,
+        value: Math.min(100, Math.max(10, Math.round((source.value / Math.max(totalPageviews, 1)) * 100))),
+      })),
     },
   };
 }
 
 export async function GET() {
   try {
-    const result = await getGoogleAnalyticsSummary();
+    const result = await getAnalyticsData();
 
     if (!result.configured) {
       return NextResponse.json({
@@ -132,25 +169,15 @@ export async function GET() {
       data: result.data,
     });
   } catch (error) {
-    console.error("GA analytics error:", error);
-
     return NextResponse.json(
       {
         success: false,
         configured: true,
-        message: "Failed to load stats from Google Analytics.",
+        message: "Failed to load live analytics data.",
         error: error.message,
-        data: {
-          totalVisits: 0,
-          uniqueVisitors: 0,
-          pageViews: 0,
-          conversions: 0,
-          avgSession: "00:00",
-          bounceRate: 0,
-          recentActivity: [],
-        },
+        data: DEFAULT_DATA,
       },
-      { status: 500 },
+      { status: 500 }
     );
   }
 }
