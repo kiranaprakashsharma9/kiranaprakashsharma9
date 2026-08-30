@@ -97,6 +97,17 @@ export const metadata = {
 export default function RootLayout({ children }) {
   return (
     <html lang="en" suppressHydrationWarning>
+      <head>
+        <script async src="https://www.googletagmanager.com/gtag/js?id=G-LTVTD5BZM0"></script>
+        <script dangerouslySetInnerHTML={{
+          __html: `
+            window.dataLayer = window.dataLayer || [];
+            function gtag(){dataLayer.push(arguments);}
+            gtag('js', new Date());
+            gtag('config', 'G-LTVTD5BZM0');
+          `,
+        }} />
+      </head>
       {/* Added overflow-x-hidden and max-w-full to prevent horizontal scrolling */}
       <body className="overflow-x-hidden max-w-full pt-16" suppressHydrationWarning>
         <LanguageProvider>

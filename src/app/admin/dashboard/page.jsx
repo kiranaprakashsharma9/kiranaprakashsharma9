@@ -39,7 +39,7 @@ async function compressImageFile(file, maxDimension = 2000, quality = 0.9) {
   }
 }
 
-const CATEGORIES = [
+const GROUPS = [
   { key: "shuba", label: "Shuba (Auspicious Poojas)" },
   { key: "ashuba", label: "Ashuba (Post-death Rituals)" },
 ];
@@ -47,9 +47,13 @@ const CATEGORIES = [
 export default function AdminDashboardPage() {
   const { status, user } = useAdminSession({ redirectIfNotAdmin: true });
 
-  const [category, setCategory] = useState("shuba");
+  const [group, setGroup] = useState("shuba");
+  const [categoryOptions, setCategoryOptions] = useState(["shuba"]);
+  const [selectedCategory, setSelectedCategory] = useState("shuba");
+  const [newCategoryName, setNewCategoryName] = useState("");
   const [images, setImages] = useState([]);
   const [loadingImages, setLoadingImages] = useState(true);
+  const [loadingCategories, setLoadingCategories] = useState(true);
   const [file, setFile] = useState(null);
   const [caption, setCaption] = useState("");
   const [uploading, setUploading] = useState(false);
@@ -58,18 +62,214 @@ export default function AdminDashboardPage() {
   const [editCaption, setEditCaption] = useState("");
   const [editFile, setEditFile] = useState(null);
   const [updatingImage, setUpdatingImage] = useState(false);
+  const [trackedData, setTrackedData] = useState({
+    totalVisits: 0,
+    uniqueVisitors: 0,
+    pageViews: 0,
+    conversions: 0,
+    avgSession: "00:00",
+    bounceRate: 0,
+    recentActivity: [{ label: "Loading analytics...", type: "page", time: "Please wait" }],
+  });
+  const [analyticsStatus, setAnalyticsStatus] = useState("loading");
 
   useEffect(() => {
-    if (status === "admin") loadImages();
+    if (status === "admin") {
+      loadCategories();
+      fetchAnalytics();
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [status, category]);
+  }, [status, group]);
+
+  useEffect(() => {
+    if (status === "admin") {
+      loadImages();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [status, selectedCategory]);
+
+  async function fetchAnalytics() {
+    try {
+      setAnalyticsStatus("loading");
+      const response = await fetch("/api/admin/analytics");
+      const result = await response.json();
+
+      if (!response.ok || !result.success || !result.data) {
+        setAnalyticsStatus("not-configured");
+        setTrackedData(result?.data || {
+          totalVisits: 0,
+          uniqueVisitors: 0,
+          pageViews: 0,
+          conversions: 0,
+          avgSession: "00:00",
+          bounceRate: 0,
+          recentActivity: [{ label: "Google Analytics not configured", type: "page", time: "Setup required" }],
+        });
+        return;
+      }
+
+      setTrackedData(result.data);
+      setAnalyticsStatus("ready");
+    } catch (error) {
+      console.error("Analytics fetch failed:", error);
+      setAnalyticsStatus("error");
+      setTrackedData({
+        totalVisits: 0,
+        uniqueVisitors: 0,
+        pageViews: 0,
+        conversions: 0,
+        avgSession: "00:00",
+        bounceRate: 0,
+        recentActivity: [{ label: "Analytics unavailable", type: "page", time: "Check service config" }],
+      });
+    }
+  }
+
+  async function loadCategories() {
+    setLoadingCategories(true);
+    try {
+      const { data: categoryRows, error: categoryError } = await supabase
+        .from("gallery_categories")
+        .select("value, group")
+        .eq("group", group)
+        .order("value", { ascending: true });
+
+      if (!categoryError && categoryRows && categoryRows.length > 0) {
+        const values = Array.from(
+          new Set(
+            categoryRows
+              .map((item) => item.value)
+              .filter(Boolean)
+              .filter((value) => value === group || value.startsWith(`${group}/`))
+          )
+        );
+
+        const options = values.length > 0 ? [group, ...values.filter((value) => value !== group)] : [group];
+        setCategoryOptions(options);
+        setSelectedCategory((current) => (options.includes(current) ? current : options[0]));
+        setLoadingCategories(false);
+        return;
+      }
+
+      const { data, error } = await supabase
+        .from("gallery_images")
+        .select("category")
+        .like("category", `${group}%`);
+
+      if (error) throw error;
+
+      const values = Array.from(
+        new Set(
+          (data || [])
+            .map((item) => item.category)
+            .filter(Boolean)
+            .filter((value) => value === group || value.startsWith(`${group}/`))
+        )
+      );
+
+      const options = values.length > 0 ? [group, ...values.filter((value) => value !== group)] : [group];
+      setCategoryOptions(options);
+      setSelectedCategory((current) => (options.includes(current) ? current : options[0]));
+    } catch (error) {
+      console.warn("Unable to load gallery categories, using top-level group only:", error);
+      const fallback = [group];
+      setCategoryOptions(fallback);
+      setSelectedCategory(group);
+    } finally {
+      setLoadingCategories(false);
+    }
+  }
+
+  async function createCategory(event) {
+    if (event) event.preventDefault();
+    const trimmed = newCategoryName.trim();
+    if (!trimmed) return;
+
+    const safeSlug = trimmed
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "") || "category";
+
+    const nextCategory = `${group}/${safeSlug}`;
+
+    try {
+      const { error } = await supabase
+        .from("gallery_categories")
+        .upsert(
+          {
+            group,
+            value: nextCategory,
+            slug: safeSlug,
+            name: trimmed,
+          },
+          { onConflict: "group,value" }
+        );
+
+      if (!error) {
+        setCategoryOptions((current) =>
+          current.includes(nextCategory) ? current : [...current, nextCategory],
+        );
+      }
+    } catch (error) {
+      console.warn("gallery_categories table not available; using local state only", error);
+    }
+
+    setSelectedCategory(nextCategory);
+    setNewCategoryName("");
+    setMessage({ type: "success", text: `Category "${trimmed}" is ready for upload.` });
+  }
+
+  async function removeCategory(categoryValue) {
+    if (!categoryValue || categoryValue === group) return;
+
+    const label = categoryValue.replace(`${group}/`, "");
+    const confirmed = window.confirm(
+      `Remove the "${label}" subcategory? Existing images will move to the main ${group} group.`
+    );
+
+    if (!confirmed) return;
+
+    try {
+      const { error: categoryTableError } = await supabase
+        .from("gallery_categories")
+        .delete()
+        .eq("group", group)
+        .eq("value", categoryValue);
+
+      if (categoryTableError) {
+        const { error } = await supabase
+          .from("gallery_images")
+          .update({ category: group })
+          .eq("category", categoryValue);
+
+        if (error) throw error;
+      }
+
+      setCategoryOptions((current) => current.filter((value) => value !== categoryValue));
+      if (selectedCategory === categoryValue) {
+        setSelectedCategory(group);
+      }
+      setMessage({ type: "success", text: `Subcategory "${label}" removed.` });
+      loadImages();
+      loadCategories();
+    } catch (error) {
+      console.error("Failed to remove category:", error);
+      setMessage({ type: "error", text: error.message || "Unable to remove category." });
+    }
+  }
 
   async function loadImages() {
     setLoadingImages(true);
-    const { data, error } = await supabase
-      .from("gallery_images")
-      .select("*")
-      .eq("category", category)
+
+    let query = supabase.from("gallery_images").select("*");
+
+    if (selectedCategory === group) {
+      query = query.like("category", `${group}%`);
+    } else {
+      query = query.eq("category", selectedCategory);
+    }
+
+    const { data, error } = await query
       .order("display_order", { ascending: true })
       .order("created_at", { ascending: true });
 
@@ -83,10 +283,12 @@ export default function AdminDashboardPage() {
     setUploading(true);
     setMessage(null);
 
+    const activeCategory = selectedCategory || group;
+
     // Compress the image before upload to reduce size (keeps good quality)
     const compressed = await compressImageFile(file, 2000, 0.9);
     const safeName = compressed.name.replace(/\s+/g, "-").toLowerCase();
-    const path = `${category}/${Date.now()}-${safeName}`;
+    const path = `${activeCategory}/${Date.now()}-${safeName}`;
 
     // 1. Upload the actual file to Supabase Storage
     const { error: uploadError } = await supabase.storage
@@ -106,7 +308,7 @@ export default function AdminDashboardPage() {
 
     // 3. Save a row pointing to it, so the public site can list/query it
     const { error: insertError } = await supabase.from("gallery_images").insert({
-      category,
+      category: activeCategory,
       storage_path: path,
       image_url: publicUrlData.publicUrl,
       caption: caption || null,
@@ -154,7 +356,7 @@ export default function AdminDashboardPage() {
         // compress replacement file before upload
         const compressedEdit = await compressImageFile(editFile, 2000, 0.9);
         const safeName = compressedEdit.name.replace(/\s+/g, "-").toLowerCase();
-        const newPath = `${category}/${Date.now()}-${safeName}`;
+        const newPath = `${group}/${Date.now()}-${safeName}`;
 
         const { error: uploadError } = await supabase.storage
           .from("gallery")
@@ -227,58 +429,196 @@ export default function AdminDashboardPage() {
         </button>
       </div>
 
-      {/* Category tabs */}
-      <div className="flex gap-2 mb-6">
-        {CATEGORIES.map((c) => (
+      <section className="mb-8 rounded-2xl border border-orange-100 bg-gradient-to-br from-orange-50 via-white to-orange-100 p-6 shadow-sm">
+        <div className="mb-5 flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+          <div>
+            <p className="text-sm font-semibold uppercase tracking-[0.2em] text-orange-600">
+              User tracked data
+            </p>
+            <h2 className="mt-2 text-2xl font-bold text-orange-800">
+              Website analytics overview
+            </h2>
+          </div>
+          <div className="flex justify-end sm:justify-start">
+            <div
+              className={`inline-flex items-center rounded-full border px-2.5 py-1 text-[10px] font-semibold tracking-wide sm:text-xs ${
+                analyticsStatus === "not-configured"
+                  ? "border-red-200 bg-red-50 text-red-600 animate-pulse"
+                  : "border-orange-200 bg-white text-orange-700"
+              }`}
+            >
+              {analyticsStatus === "ready" ? "Live summary" : analyticsStatus === "not-configured" ? "Setup required" : "Loading"}
+            </div>
+          </div>
+        </div>
+
+        {analyticsStatus === "not-configured" && (
+          <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+            Google Analytics is not configured yet. Add GA_SERVICE_ACCOUNT_EMAIL, GA_PRIVATE_KEY, and GA_PROPERTY_ID in your environment to enable real tracking.
+          </div>
+        )}
+
+        <div className="grid grid-cols-2 gap-4 xl:grid-cols-5">
+          {[
+            { label: "Total visits", value: trackedData.totalVisits.toLocaleString(), accent: "bg-orange-600" },
+            { label: "Unique visitors", value: trackedData.uniqueVisitors.toLocaleString(), accent: "bg-amber-500" },
+            { label: "Page views", value: trackedData.pageViews.toLocaleString(), accent: "bg-yellow-500" },
+            { label: "Conversions", value: trackedData.conversions.toLocaleString(), accent: "bg-emerald-500" },
+            { label: "Avg. session", value: trackedData.avgSession, accent: "bg-cyan-500" },
+          ].map((item) => (
+            <div key={item.label} className="rounded-xl border border-orange-100 bg-white p-4 shadow-sm">
+              <div className={`mb-3 h-2 w-12 rounded-full ${item.accent}`} />
+              <p className="text-sm text-gray-500">{item.label}</p>
+              <p className="mt-2 text-xl font-bold text-gray-900 sm:text-2xl">{item.value}</p>
+            </div>
+          ))}
+        </div>
+
+        <div className="mt-6 grid gap-4 lg:grid-cols-[1.2fr_0.8fr]">
+          <div className="rounded-xl border border-orange-100 bg-white p-4 shadow-sm">
+            <div className="mb-3 flex items-center justify-between">
+              <h3 className="text-lg font-semibold text-gray-800">Recent activity</h3>
+              <span className="text-xs font-medium text-gray-500">Last 24 hours</span>
+            </div>
+            <div className="space-y-3">
+              {trackedData.recentActivity.map((activity, index) => (
+                <div key={`${activity.label}-${index}`} className="flex items-center justify-between rounded-lg bg-orange-50 px-3 py-2">
+                  <div className="flex items-center gap-3">
+                    <span
+                      className={`inline-flex h-2.5 w-2.5 rounded-full ${
+                        activity.type === "action" ? "bg-emerald-500" : "bg-orange-500"
+                      }`}
+                    />
+                    <span className="text-sm font-medium text-gray-700">{activity.label}</span>
+                  </div>
+                  <span className="text-xs text-gray-500">{activity.time}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="rounded-xl border border-orange-100 bg-white p-4 shadow-sm">
+            <h3 className="text-lg font-semibold text-gray-800">Engagement</h3>
+            <div className="mt-5 space-y-4">
+              <div>
+                <div className="mb-1 flex justify-between text-sm text-gray-600">
+                  <span>Bounce rate</span>
+                  <span className="font-semibold text-gray-800">{trackedData.bounceRate}%</span>
+                </div>
+                <div className="h-2.5 w-full overflow-hidden rounded-full bg-orange-100">
+                  <div className="h-full rounded-full bg-orange-600" style={{ width: `${trackedData.bounceRate}%` }} />
+                </div>
+              </div>
+
+              <div className="rounded-lg bg-gradient-to-r from-orange-100 to-amber-100 p-3">
+                <p className="text-sm text-gray-600">Most visited page</p>
+                <p className="mt-1 text-base font-bold text-orange-700">Home</p>
+              </div>
+
+              <div className="rounded-lg bg-gradient-to-r from-emerald-100 to-green-100 p-3">
+                <p className="text-sm text-gray-600">Top action</p>
+                <p className="mt-1 text-base font-bold text-emerald-700">WhatsApp clicks</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* Group tabs */}
+      <div className="mb-6 grid grid-cols-2 gap-2 sm:flex sm:flex-wrap">
+        {GROUPS.map((c) => (
           <button
             key={c.key}
-            onClick={() => setCategory(c.key)}
-            className={`px-4 py-2 rounded-md text-sm font-semibold transition ${
-              category === c.key
+            onClick={() => {
+              setGroup(c.key);
+              setSelectedCategory(c.key);
+            }}
+            className={`rounded-md px-2 py-2 text-[11px] font-semibold transition sm:px-4 sm:text-sm ${
+              group === c.key
                 ? "bg-orange-600 text-white"
                 : "bg-orange-50 text-orange-700 hover:bg-orange-100"
             }`}
+            style={{ whiteSpace: "nowrap" }}
           >
             {c.label}
           </button>
         ))}
       </div>
 
-      {/* Upload form */}
       <form
         onSubmit={handleUpload}
-        className="bg-white border border-orange-100 rounded-xl shadow-sm p-6 mb-8 flex flex-col sm:flex-row gap-4 sm:items-end"
+        className="mb-8 rounded-xl border border-orange-100 bg-white p-6 shadow-sm"
       >
-        <div className="flex-1">
-          <label className="block text-sm font-medium text-gray-700 mb-1">
-            Image file
-          </label>
-          <input
-            type="file"
-            accept="image/*"
-            onChange={(e) => setFile(e.target.files?.[0] || null)}
-            className="block w-full text-sm text-gray-600"
-          />
+        <div className="mb-4 overflow-x-auto pb-1">
+          <div className="flex min-w-max gap-2">
+            {categoryOptions
+              .filter((value) => value !== group)
+              .map((value) => {
+                const label = value.replace(`${group}/`, "");
+
+                return (
+                  <div
+                    key={value}
+                    className={`flex items-center gap-2 rounded-full border px-2 py-1.5 text-xs font-medium transition ${
+                      selectedCategory === value
+                        ? "border-orange-600 bg-orange-600 text-white"
+                        : "border-orange-200 bg-white text-orange-700 hover:border-orange-400 hover:bg-orange-100"
+                    }`}
+                  >
+                    <button
+                      type="button"
+                      onClick={() => setSelectedCategory(value)}
+                      className="whitespace-nowrap"
+                    >
+                      {label}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => removeCategory(value)}
+                      aria-label={`Remove ${label}`}
+                      title={`Remove ${label}`}
+                      className="inline-flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-bold transition hover:bg-black/10"
+                    >
+                      ×
+                    </button>
+                  </div>
+                );
+              })}
+          </div>
         </div>
-        <div className="flex-1">
-          <label className="block text-sm font-medium text-gray-700 mb-1">
-            Caption
-          </label>
-          <input
-            type="text"
-            value={caption}
-            onChange={(e) => setCaption(e.target.value)}
-            className="w-full border border-gray-300 rounded-md px-3 py-2 text-gray-900"
-            placeholder="Optional"
-          />
+
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-end">
+          <div className="flex-1">
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Image file
+            </label>
+            <input
+              type="file"
+              accept="image/*"
+              onChange={(e) => setFile(e.target.files?.[0] || null)}
+              className="block w-full text-sm text-gray-600"
+            />
+          </div>
+          <div className="flex-1">
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Caption
+            </label>
+            <input
+              type="text"
+              value={caption}
+              onChange={(e) => setCaption(e.target.value)}
+              className="w-full border border-gray-300 rounded-md px-3 py-2 text-gray-900"
+              placeholder="Optional"
+            />
+          </div>
+          <button
+            type="submit"
+            disabled={uploading || !file}
+            className="bg-orange-600 hover:bg-orange-700 text-white font-semibold px-5 py-2.5 rounded-md transition disabled:opacity-50"
+          >
+            {uploading ? "Uploading..." : "Add Image"}
+          </button>
         </div>
-        <button
-          type="submit"
-          disabled={uploading || !file}
-          className="bg-orange-600 hover:bg-orange-700 text-white font-semibold px-5 py-2.5 rounded-md transition disabled:opacity-50"
-        >
-          {uploading ? "Uploading..." : "Add Image"}
-        </button>
       </form>
 
       {message && (

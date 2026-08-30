@@ -24,7 +24,7 @@ const Shuba = ({ showBackButton = true, previewCount = null }) => {
       const { data, error } = await supabase
         .from('gallery_images')
         .select('id, caption, image_url')
-        .eq('category', 'shuba')
+        .like('category', 'shuba%')
         .order('display_order', { ascending: true })
         .order('created_at', { ascending: true });
 
