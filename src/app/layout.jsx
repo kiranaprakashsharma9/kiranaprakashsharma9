@@ -98,7 +98,7 @@ export default function RootLayout({ children }) {
   return (
     <html lang="en" suppressHydrationWarning>
       {/* Added overflow-x-hidden and max-w-full to prevent horizontal scrolling */}
-      <body className="overflow-x-hidden max-w-full" suppressHydrationWarning>
+      <body className="overflow-x-hidden max-w-full pt-16" suppressHydrationWarning>
         <LanguageProvider>
           <Navbar />
 

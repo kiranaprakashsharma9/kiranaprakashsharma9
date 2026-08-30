@@ -36,10 +36,6 @@ const Footer = () => {
 
         {/* Copyright */}
         <div className="text-center text-sm text-orange-100 flex flex-col gap-2 mb-6">
-          <p>
-            &copy; {currentYear} {t.common.brandName}.{" "}
-            {t.common.allRightsReserved}
-          </p>
 
           <p className="text-xs sm:text-sm text-orange-200">
             {t.common.designedBy}{" "}
