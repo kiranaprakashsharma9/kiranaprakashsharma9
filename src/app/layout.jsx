@@ -3,6 +3,7 @@ import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
 import FloatingActions from "@/components/FloatingActions";
 import { LanguageProvider } from "@/context/LanguageContext";
+import { Analytics } from "@vercel/analytics/next";
 
 export const metadata = {
   metadataBase: new URL(
@@ -119,6 +120,7 @@ export default function RootLayout({ children }) {
 
           <FloatingActions />
         </LanguageProvider>
+        <Analytics />
       </body>
     </html>
   );
