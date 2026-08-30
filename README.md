@@ -1,4 +1,4 @@
-# Kiran Prakash Sharma Purohit — Website
+# Kiranprakashs0harma Purohit — Website
 
 A bilingual (English / Kannada) website for a purohit (Hindu priest) offering pooja and ritual services, with an admin-managed photo gallery, live Google reviews, and an AI chat assistant.
 
