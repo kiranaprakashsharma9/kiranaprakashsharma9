@@ -1,4 +1,4 @@
-# Kiran Prakash Sharma Purohit — Website
+# Kiranprakashsharma9 Purohit — Website
 
 A bilingual (English / Kannada) website for a purohit (Hindu priest) offering pooja and ritual services, with an admin-managed photo gallery, live Google reviews, and an AI chat assistant.
 
@@ -25,6 +25,7 @@ This project started as a Vite + React app, was migrated to **Next.js (App Route
 | Google Reviews | [SociableKIT](https://sociablekit.com) | Embedded live Google Reviews widget |
 | AI Chat Assistant | [Botpress Cloud](https://botpress.cloud) | Site-wide chatbot for visitor questions |
 | Bilingual content | Custom `LanguageContext` (React Context) | English ⇄ Kannada toggle site-wide |
+| GA4 | Google Analysis) | Track user activity |
 
 ---
 
